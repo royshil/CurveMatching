@@ -6,7 +6,7 @@ using namespace cv;
 int main(int argc, char** argv) {
 	vector<Point> a,b;
 	
-	Mat src = imread("/Users/royshilkrot/Documents/Native Naming/original-png/deer-18.png");
+	Mat src = imread("deer-18.png");
 	if (src.empty()) {
 		cerr << "can't read image" << endl; exit(0);
 	}
