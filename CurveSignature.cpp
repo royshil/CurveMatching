@@ -22,9 +22,19 @@ using namespace cv;
 
 #pragma mark Utilities
 
-void GetCurveForImage(const Mat& filename, vector<Point>& curve, bool onlyUpper) {
+bool fileExists(const std::string& filename)
+{
+    struct stat buf;
+    if (stat(filename.c_str(), &buf) != -1)
+    {
+        return true;
+    }
+    return false;
+}
+
+void GetCurveForImage(const Mat& filename, vector<Point>& whole, vector<Point>& curve_upper, vector<Point>& curve_lower) {
 	assert(!filename.empty());
-	Mat tmp = filename;
+	Mat tmp; filename.copyTo(tmp);
 	Mat gray; 
 	if(tmp.type() == CV_8UC3)
 		cvtColor(tmp, gray, CV_BGR2GRAY);
@@ -46,37 +56,53 @@ void GetCurveForImage(const Mat& filename, vector<Point>& curve, bool onlyUpper)
 		return;
 	}
 	
-	if (onlyUpper) {
-		//find minimal and maximal X coord
-		vector<double> x,y;
-		PolyLineSplit(contours[0], x, y);
-		Point minxp,maxxp;
-		minMaxLoc(x, 0, 0, &minxp, &maxxp);
-		int minx = minxp.x,maxx = maxxp.x;
-		if (minx > maxx) swap(minx, maxx);
-		
-		//take lower and upper halves of the curve
-		vector<Point> upper,lower;
-		upper.insert(upper.begin(),contours[0].begin()+minx,contours[0].begin()+maxx);
-		lower.insert(lower.begin(),contours[0].begin()+maxx,contours[0].end());
-		lower.insert(lower.end(),contours[0].begin(),contours[0].begin()+minx);
-		
-		//test which is really the upper part, by looking at the y-coord of the mid point
-		
-		if (lower[lower.size()/2].y <= upper[upper.size()/2].y) {
-			upperCurve = lower;
-		} else {
-			upperCurve = upper;
-		}
-		
-		//make sure it goes left-to-right
-		if (upperCurve.front().x > upperCurve.back().x) { //hmmm, need to flip
-			reverse(upperCurve.begin(), upperCurve.end());
-		}		
-	}	
+	//find minimal and maximal X coord
+	vector<double> x,y;
+	PolyLineSplit(contours[0], x, y);
+	Point minxp,maxxp;
+	minMaxLoc(x, 0, 0, &minxp, &maxxp);
+	int minx = minxp.x,maxx = maxxp.x;
+	if (minx > maxx) swap(minx, maxx);
 	
-	curve = upperCurve;
+	//take lower and upper halves of the curve
+	vector<Point> upper,lower;
+	upper.insert(upper.begin(),contours[0].begin()+minx,contours[0].begin()+maxx);
+	lower.insert(lower.begin(),contours[0].begin()+maxx,contours[0].end());
+	lower.insert(lower.end(),contours[0].begin(),contours[0].begin()+minx);
+	
+	//test which is really the upper part, by looking at the y-coord of the mid point
+	
+	if (lower[lower.size()/2].y <= upper[upper.size()/2].y) {
+		curve_upper = lower;
+		curve_lower = upper;
+	} else {
+		curve_upper = upper;
+		curve_lower = lower;
+	}
+	
+	//make sure it goes left-to-right
+	if (curve_upper.front().x > curve_upper.back().x) { //hmmm, need to flip
+		reverse(curve_upper.begin(), curve_upper.end());
+	}		
+	
+	whole.clear();
+	whole.insert(whole.begin(),curve_upper.rbegin(),curve_upper.rend());
+	whole.insert(whole.begin(),curve_lower.begin(),curve_lower.end());
 }	
+
+void GetCurveForImage(const Mat& filename, vector<Point>& curve, bool onlyUpper, bool getLower) {
+	vector<Point> whole,upper,lower;
+	GetCurveForImage(filename,whole,upper,lower);
+	if (onlyUpper) {
+		if (getLower) 
+			curve = lower;
+		else
+			curve = upper;
+	} else {
+		curve = whole;
+	}
+}
+
 
 #pragma mark Signature Database extracting and matching
 
@@ -133,7 +159,7 @@ struct CrossCorrelationDistance
     template <typename Iterator1, typename Iterator2>
     ResultType operator()(Iterator1 x, Iterator2 y, size_t size, ResultType /*worst_dist*/ = -1) const
     {
-        int i,j,n = size;
+        int i,n = size;
 		ResultType mx,my,sx,sy,sxy,denom,r;
 		
 		/* Calculate the mean of the two series x[], y[] */
@@ -221,7 +247,7 @@ void CompareCurvesUsingFLANN(const vector<Mat>& DB,
 	{
 		vector<double> a_sig(packed.cols); 
 		memcpy(&(a_sig[0]), packed.row(indices.at<int>(b_subset_id)).data, sizeof(double)*a_sig.size());
-		ShowMathMLCurves(query_DB[b_subset_id], a_sig, "curvatures");
+		ShowMathGLCurves(query_DB[b_subset_id], a_sig, "curvatures");
 	}
 }
 	
@@ -247,8 +273,8 @@ void CompareCurvesUsingSignatureDBMatcher(FlannBasedMatcher& matcher,
 	//-- Quick calculation of max and min distances between keypoints
 	for( int i = matches.size()-1; i >=0 ; i-- )
 	{ 
-		int imgidx = matches[i].imgIdx;
-		double dist = (max(1.0,200.0 - (double)(typical_params[matches[i].queryIdx].x)) + 
+//		int imgidx = matches[i].imgIdx;
+		double dist = (max(1.0,200.0 - (double)(typical_params[matches[i].queryIdx].x)) +
 					   max(1.0,200.0 - (double)(typical_params[matches[i].trainIdx].x))) +  
 						100.0*matches[i].distance;
 		if( dist < min_dist ) { min_dist = dist; min_match = matches[i]; }
@@ -399,14 +425,14 @@ void CompareCurvesUsingSignatureDB(const vector<Point2d>& a,
 		vector<double> a_sig,b_sig;
 		a_sig = a_DB[scores_to_matches.front().second.queryIdx], 
 		b_sig = b_DB[scores_to_matches.front().second.trainIdx];
-		ShowMathMLCurves(a_sig, b_sig, "curvatures0");
+		ShowMathGLCurves(a_sig, b_sig, "curvatures0");
 	}
 		
 	a_len = a_DB_params[scores_to_matches.front().second.queryIdx].x;
 	a_off = a_DB_params[scores_to_matches.front().second.queryIdx].y;
 	b_len = b_DB_params[scores_to_matches.front().second.trainIdx].x;
 	b_off = b_DB_params[scores_to_matches.front().second.trainIdx].y;
-	scores = scores_to_matches.front().first;
+	score = scores_to_matches.front().first;
 	
 	cout << "("<<a_len<<","<<a_off<<") -> ("<<b_len<<","<<b_off<<")   RMSE: " << scores_to_matches.front().first << endl;
 }
@@ -582,5 +608,106 @@ void CompareSignaturesGPU(const Mat_<float>& a, const Mat_<float>& b,
 	len = ccv[3].at<float>(maxLoc.y,maxLoc.x);
 }
 
+#endif //WITHOUT_OPENCL
 
-#endif
+#pragma mark Curvature Extrema Matching
+
+Mat_<double> GetSmithWatermanHMatrix(const vector<pair<char,int> >& a, const vector<pair<char,int> >& b) {
+	int M = a.size();
+	int N = b.size();
+	
+	//Smith-Waterman
+	Mat_<double> H(M+1,N+1,0.0);
+	for (int i=1; i <= M; i++) {
+		for (int j=1; j <= N; j++) {
+			vector<double> v(4,0.0); 
+			v[1] = H(i-1,j-1) + ((a[i-1].first == b[j-1].first) ? 2.0 : -1.0);
+			v[2] = H(i-1,j) - 1.0;
+			v[3] = H(i,j-1) - 1.0;
+			H(i,j) = *(max_element(v.begin(), v.end()));
+		}
+	}
+//	cout << H << endl;
+	return H;
+}	
+
+/* original Smith Waterman algorithm */
+double MatchSmithWaterman(const vector<pair<char,int> >& a, const vector<pair<char,int> >& b, vector<Point>& matching) 
+{	
+	vector<Point> traceback;
+	Mat_<double> H = GetSmithWatermanHMatrix(a,b);
+	Point maxp; double maxval;
+	minMaxLoc(H, NULL, &maxval, NULL, &maxp);
+	vector<char> step;
+	while (H(maxp.y,maxp.x) != 0) {
+		//				cout << "H(maxp.y-1,maxp.x-1) > H(maxp.y,maxp.x-1)" << H(maxp.y-1,maxp.x-1) << " > " << H(maxp.y,maxp.x-1) << endl;
+		if (H(maxp.y-1,maxp.x-1) > H(maxp.y,maxp.x-1) &&
+			H(maxp.y-1,maxp.x-1) > H(maxp.y-1,maxp.x)) 
+		{
+			traceback.push_back(maxp);
+			maxp = maxp - Point(1,1);
+			step.push_back('a');
+		} else
+			if (H(maxp.y-1,maxp.x) > H(maxp.y-1,maxp.x-1) &&
+				H(maxp.y-1,maxp.x) > H(maxp.y,maxp.x-1)) 
+			{
+				traceback.push_back(maxp);
+				maxp.y--;
+				step.push_back('d');
+			} else
+				if (H(maxp.y,maxp.x-1) > H(maxp.y-1,maxp.x-1) &&
+					H(maxp.y,maxp.x-1) > H(maxp.y-1,maxp.x)) 
+				{
+					traceback.push_back(maxp);
+					maxp.x--;
+					step.push_back('i');
+				}
+				else {
+					//default - go back on both
+					traceback.push_back(maxp);
+					maxp = maxp - Point(1,1);
+					step.push_back('a');
+				}
+	}
+	for (vector<Point>::reverse_iterator it = traceback.rbegin(); 
+		 it != traceback.rend() - 1; 
+		 ++it) 
+	{
+		if((*it).y != (*(it+1)).y && (*it).x != (*(it+1)).x)
+			matching.push_back(Point((*it).y,(*it).x));
+	}
+	for (vector<Point>::reverse_iterator it = traceback.rbegin(); 
+		 it != traceback.rend(); 
+		 ++it) 
+	{
+		if(it==traceback.rend())
+			cout << a[(*it).y].first;
+		else {
+			if((*it).y == (*(it+1)).y)
+				cout << "-";
+			else {
+				cout << a[(*it).y].first;
+			}
+		}
+	} 
+	cout << endl;
+	for (vector<Point>::reverse_iterator it = traceback.rbegin(); 
+		 it != traceback.rend(); 
+		 ++it) 
+	{
+		if(it==traceback.rend())
+			cout << b[(*it).x].first;
+		else {
+			if((*it).x == (*(it+1)).x)
+				cout << "-";
+			else
+				cout << b[(*it).x].first;
+		}
+	} 
+	cout << endl;
+	for (int k=0; k<step.size(); k++) {
+		cout << step[k];
+	}
+	cout << endl;
+	return maxval;
+}

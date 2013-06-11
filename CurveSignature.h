@@ -3,20 +3,25 @@
  *  CurveMatching
  *
  *  Created by Roy Shilkrot on 12/7/12.
- *  Copyright 2012 MIT. All rights reserved.
+ *  Copyright (c) 2013 MIT
+ *
+ *  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+ *  The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+ *
+ *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
  *
  */
 
-#ifdef HAVE_MATHGL
-#include <mgl2/mgl.h>
-#include <mgl2/window.h>
-#endif
 
-#include <opencv2/features2d/features2d.hpp>
+#include "opencv2/features2d/features2d.hpp"
+#include <sys/stat.h>
+#include "MathGLTools.h"
 
 #pragma mark Utilities
 
-#define CV_PROFILE(msg,code)	\
+#ifdef ENABLE_PROFILE
+#define CV_PROFILE_MSG(msg,code)	\
 {\
 std::cout << msg << " ";\
 double __time_in_ticks = (double)cv::getTickCount();\
@@ -31,23 +36,82 @@ double __time_in_ticks = (double)cv::getTickCount();\
 { code }\
 std::cout << "DONE " << ((double)cv::getTickCount() - __time_in_ticks)/cv::getTickFrequency() << "s" << std::endl;\
 }
+#else
+#define CV_PROFILE_MSG(msg,code) code
+#define CV_PROFILE(code) code
+#endif
+
+bool fileExists(const std::string& filename);
+
+template<typename T>
+int closestPointOnCurveToPoint(const vector<cv::Point_<T> >& _tmp, const cv::Point& checkPt, const T cutoff) {
+    vector<cv::Point_<T> > tmp = _tmp;
+    Mat(tmp) -= Scalar(checkPt.x,checkPt.y);
+    vector<float> tmpx,tmpy,tmpmag;
+    PolyLineSplit(tmp, tmpx, tmpy);
+    magnitude(tmpx,tmpy,tmpmag);
+    double minDist = -1;
+    cv::Point minLoc; minMaxLoc(tmpmag, &minDist,0,&minLoc);
+    if(minDist<cutoff)
+        return minLoc.x;
+    else
+        return -1;
+}
+
+template<typename T>
+void saveCurveToFile(const vector<Point_<T> >& curve) {
+	static int curve_id = 0;
+	
+	stringstream ss; ss << "curves/curves_"<<(curve_id++)<<".txt";
+	while(fileExists(ss.str())) {
+		ss.str("");
+		ss << "curves/curves_"<<(curve_id++)<<".txt";
+	}
+	
+	ofstream ofs(ss.str().c_str());
+	ofs << curve.size() << "\n";
+	for (int i=0; i<curve.size(); i++) {
+		ofs << curve[i].x << " " << curve[i].y << "\n";
+	}
+	cout << "saved " << ss.str() << "\n";
+}
+
+template<typename T>
+vector<Point_<T> > loadCurveFromFile(const string& filename) {
+	vector<Point_<T> > curve;
+	ifstream ifs(filename.c_str());
+	int curve_size; ifs >> skipws >> curve_size;
+	while (!ifs.eof()) {
+		T x,y;
+		ifs >> x >> y;
+		curve.push_back(Point_<T>(x,y));
+	}
+	return curve;
+}
+
 
 template<typename V>
-Mat_<double> Find2DRigidTransform(const vector<Point_<V> >& a, const vector<Point_<V> >& b) {	
+Mat_<double> Find2DRigidTransform(const vector<Point_<V> >& a, const vector<Point_<V> >& b, 
+								  Point_<V>* diff = 0, V* angle = 0, V* scale = 0) {	
 	//use PCA to find relational scale
-	Mat a_ = Mat(a).reshape(1);
-	Mat b_ = Mat(b).reshape(1);
-	PCA a_pca(a_,Mat(),CV_PCA_DATA_AS_ROW), b_pca(b_,Mat(),CV_PCA_DATA_AS_ROW);
+	Mat_<V> P; Mat(a).reshape(1,a.size()).copyTo(P);
+	Mat_<V> Q; Mat(b).reshape(1,b.size()).copyTo(Q);
+	PCA a_pca(P,Mat(),CV_PCA_DATA_AS_ROW), b_pca(Q,Mat(),CV_PCA_DATA_AS_ROW);
 	double s = sqrt(b_pca.eigenvalues.at<V>(0)) / sqrt(a_pca.eigenvalues.at<V>(0));
 	//	cout << a_pca.eigenvectors << endl << a_pca.eigenvalues << endl << a_pca.mean << endl;
 	//	cout << b_pca.eigenvectors << endl << b_pca.eigenvalues << endl << b_pca.mean << endl;
 	
 	//convert to matrices and subtract mean
-	Mat_<double> P(a.size(),2),Q(b.size(),2);
-	Scalar a_m = mean(Mat(a)), b_m = mean(Mat(b));
-	for (int i=0; i<a.size(); i++) { P(i,0) = a[i].x - a_m[0]; P(i,1) = a[i].y - a_m[1]; }
-	for (int i=0; i<b.size(); i++) { Q(i,0) = b[i].x - b_m[0]; Q(i,1) = b[i].y - b_m[1]; }
-	
+//	Mat_<double> P(a.size(),2),Q(b.size(),2);
+	Scalar a_m = Scalar(a_pca.mean.at<V>(0),a_pca.mean.at<V>(1));
+    Scalar b_m = Scalar(b_pca.mean.at<V>(0),b_pca.mean.at<V>(1));
+//	for (int i=0; i<a.size(); i++) { P(i,0) = a[i].x - a_m[0]; P(i,1) = a[i].y - a_m[1]; }
+//	for (int i=0; i<b.size(); i++) { Q(i,0) = b[i].x - b_m[0]; Q(i,1) = b[i].y - b_m[1]; }
+	P -= repeat((Mat_<V>(1,2) << a_m[0],a_m[1]), P.rows, 1);
+	Q -= repeat((Mat_<V>(1,2) << b_m[0],b_m[1]), Q.rows, 1);
+    
+//    cout << "new mean for a " << mean(P) << "\n";
+    
 	//from http://en.wikipedia.org/wiki/Kabsch_algorithm
 	Mat_<double> A = P.t() * Q;
 	SVD svd(A);
@@ -59,6 +123,16 @@ Mat_<double> Find2DRigidTransform(const vector<Point_<V> >& a, const vector<Poin
 					(Mat_<double>(3,3) << R(0,0),R(0,1),0, R(1,0),R(1,1),0, 0,0,1) *
 					(Mat_<double>(3,3) << 1,0,-a_m[0], 0,1,-a_m[1], 0,0,1)
 					;
+	if (diff!=NULL) {
+		diff->x = b_m[0]-a_m[0];
+		diff->y = b_m[1]-a_m[1];
+	}
+	if (angle!=NULL) {
+		*angle = atan2(R(1,0),R(0,0));
+	}
+	if (scale!=NULL) {
+		*scale = s;
+	}
 	return T(Range(0,2),Range::all());
 }
 
@@ -75,18 +149,25 @@ Mat_<T> ConvertToMat(const vector<vector<V> >& mnt_DB) {
 
 template<typename T>
 void drawCurvePoints(Mat& img, const vector<Point_<T> >& curve_, const Scalar& color, int thickness) {
-	vector<Point> curve;
+	vector<cv::Point> curve;
 	ConvertCurve(curve_, curve);
 	for (int i=0; i<curve.size(); i++) {
 		circle(img, curve[i], 3, color, thickness);
 	}
 }
 
-void GetCurveForImage(const Mat& filename, vector<Point>& curve, bool onlyUpper = true);
+void GetCurveForImage(const Mat& filename, vector<cv::Point>& curve, bool onlyUpper = true, bool getLower = false);
+
+template <typename T>
+void GetCurveForImage(const Mat& filename, vector<Point_<T> >& curve, bool onlyUpper = true, bool getLower = false) {
+    vector<cv::Point> curve_2i;
+    GetCurveForImage(filename, curve_2i,onlyUpper,getLower);
+    ConvertCurve(curve_2i, curve);
+}
 
 template<int x, int y>
 void imshow_(const std::string& str, const Mat& img) {
-	Mat big; resize(img,big,Size(x,y));
+	Mat big; resize(img,big,cv::Size(x,y),-1,-1,INTER_NEAREST);
 	imshow(str,big);
 }
 
@@ -102,61 +183,153 @@ vector<Point_<V> > YnormalizedCurve(const vector<Point_<T> >& curve) {
 	return curveout;
 }
 
-static int mgl_id = 0;
+
+
+#pragma mark Curvature Extrema
+
 template<typename T>
-void ShowMathMLCurves(const vector<Point_<T> > a_canon, const vector<Point_<T> >& b_canon, const std::string& title)
-{
-#ifdef HAVE_MATHGL
-	mglGraph gr;
+vector<pair<char,int> > CurvatureExtrema(const vector<Point_<T> >& curve, vector<Point_<T> >& smooth, double smoothing_factor  = 3.0, bool visualizeCurvature = false) {
+	if (curve.size() <= 0) {
+		return vector<pair<char,int> >();
+	}
+	vector<double> kappa1;
+	ComputeCurveCSS(curve, kappa1, smooth, smoothing_factor, true);
 	
-	vector<double> a_canon_x,a_canon_y;
-	PolyLineSplit(a_canon, a_canon_x, a_canon_y);
-	vector<double> b_canon_x,b_canon_y;
-	PolyLineSplit(b_canon, b_canon_x, b_canon_y);
+	if(visualizeCurvature)
+		ShowMathGLCurve(kappa1, "curvature");
 	
-	mglData mgl_a_x(&(a_canon_x[0]),a_canon_x.size()),mgl_a_y(&(a_canon_y[0]),a_canon_y.size());
-	mglData mgl_b_x(&(b_canon_x[0]),b_canon_x.size()),mgl_b_y(&(b_canon_y[0]),b_canon_y.size());
+	vector<pair<char,int> > stringrep;
+	stringrep.push_back(make_pair('s', 0));
+	double cutoff = 0.025;
+	for (int i=1; i<kappa1.size()-1; i++) {
+		//inflection points
+//		if ((kappa1[i-1] > 0 && kappa1[i] < 0))
+//		{
+//			stringrep.push_back(make_pair('I',i));
+//		}
+//		if ((kappa1[i-1] < 0 && kappa1[i] > 0)) {
+//			stringrep.push_back(make_pair('i',i));
+//		}
+		
+		//extrema
+		if (abs(kappa1[i]) < cutoff) continue;
+		if (kappa1[i] > 0) {
+			if (kappa1[i-1] < kappa1[i] && kappa1[i+1] < kappa1[i]) {
+				stringrep.push_back(make_pair('X',i));
+			}
+//			if (kappa1[i-1] > kappa1[i] && kappa1[i+1] > kappa1[i]) {
+//				stringrep.push_back(make_pair('N',i));
+//			}
+		} else {
+			if (kappa1[i-1] > kappa1[i] && kappa1[i+1] > kappa1[i]) {
+				stringrep.push_back(make_pair('x',i));
+			}
+//			if (kappa1[i-1] < kappa1[i] && kappa1[i+1] < kappa1[i]) {
+//				stringrep.push_back(make_pair('n',i));
+//			}
+		}
+	}
+	stringrep.push_back(make_pair('S', kappa1.size()-1));
 	
-	gr.Title(title.c_str());
-	gr.Aspect(1, 1);	
-	double axmin,axmax,aymin,aymax,bxmin,bxmax,bymin,bymax;
-	minMaxIdx(a_canon_x, &axmin, &axmax);
-	minMaxIdx(a_canon_y, &aymin, &aymax);
-	minMaxIdx(b_canon_x, &bxmin, &bxmax);
-	minMaxIdx(b_canon_y, &bymin, &bymax);
-	gr.SetRanges(min(axmin,bxmin), max(axmax,bxmax), min(aymin,bymin), max(aymax, bymax));
-	gr.Axis(); 
-	gr.Grid();
-	gr.Plot(mgl_a_x,mgl_a_y);
-	gr.Plot(mgl_b_x,mgl_b_y);	
-	
-	Mat img(gr.GetHeight(),gr.GetWidth(),CV_8UC3,(void*)gr.GetRGB());
-	double cc = CalcCrossCorrelation(a_canon_y, b_canon_y);
-	stringstream ss; ss << "cross correlation " << cc;
-	putText(img, ss.str(), Point(10,20), CV_FONT_NORMAL, 1.0, Scalar(255), 2);
-	stringstream ss1; ss1 << "MathMLCurves " << mgl_id; mgl_id++;
-	imshow(ss1.str(), img);
-#endif
+	return stringrep;
 }	
 
 template<typename T>
-void ShowMathMLCurves(const vector<T> a_canon, const vector<T>& b_canon, const std::string& title)
+void VisualizeExtremaPoints(Mat& outout,
+							const vector<Point_<T> >& smooth, 
+							const vector<pair<char,int> >& stringrep)
 {
-	assert(a_canon.size() == b_canon.size());
-	vector<double> count_; for(int x=0;x<a_canon.size();x++) count_.push_back(x);
-	vector<Point2d> a_p2d; PolyLineMerge(a_p2d, count_, a_canon);
-	vector<Point2d> b_p2d; PolyLineMerge(b_p2d, count_, b_canon);
-	ShowMathMLCurves(a_p2d,
-					 b_p2d,
-					 title);
+	for (int i=0; i<stringrep.size(); i++) {
+		if (stringrep[i].first == 'X') {
+			circle(outout, smooth[stringrep[i].second], 3, Scalar(0,0,255), CV_FILLED);
+		}
+		if (stringrep[i].first == 'N') {
+			circle(outout, smooth[stringrep[i].second], 3, Scalar(255,255,0), CV_FILLED);
+		}
+		if (stringrep[i].first == 'x') {
+			circle(outout, smooth[stringrep[i].second], 3, Scalar(0,255,0), CV_FILLED);
+		}
+		if (stringrep[i].first == 'n') {
+			circle(outout, smooth[stringrep[i].second], 3, Scalar(0,255,255), CV_FILLED);
+		}
+		if (stringrep[i].first == 'I') {
+			circle(outout, smooth[stringrep[i].second], 3, Scalar(50,50,50), CV_FILLED);
+		}
+		if (stringrep[i].first == 'i') {
+			circle(outout, smooth[stringrep[i].second], 3, Scalar(100,100,100), CV_FILLED);
+		}
+	}
+}	
+
+template<typename T>
+void VisualizeExtrema(const Mat& src, 
+					  const vector<Point_<T> >& smooth, 
+					  const vector<pair<char,int> >& stringrep,
+					  const string& in_winname = "") 
+{
+	static int win_id = 0;
+	
+	Mat outout; //(src.size(),CV_8UC3,Scalar::all(0));
+	if (src.channels() == 1) {
+		cvtColor(src, outout, CV_GRAY2BGR);
+	} else {
+		src.copyTo(outout);
+	}
+	drawOpenCurve(outout, smooth, Scalar(255), 2);
+	VisualizeExtremaPoints(outout,smooth,stringrep);
+	stringstream ss;
+	for (int i=0; i<stringrep.size(); i++) {
+		ss << stringrep[i].first;
+	}
+	putText(outout, ss.str(), cv::Point(10,src.rows-20), CV_FONT_NORMAL, 0.5, Scalar(0,0,255), 1);
+	stringstream winname;
+	if (in_winname == "") {
+		winname << "output" << win_id++;
+	} else {
+		winname << in_winname;
+	}
+
+	imshow(winname.str(), outout);
+}	
+
+Mat_<double> GetSmithWatermanHMatrix(const vector<pair<char,int> >& a, const vector<pair<char,int> >& b);
+
+double MatchSmithWaterman(const vector<pair<char,int> >& a, const vector<pair<char,int> >& b, vector<cv::Point>& matching);
+
+template<typename T>
+void VisualizeMatching(const Mat& src, 
+					   const vector<Point_<T> >& a_p2d,
+					   const vector<Point_<T> >& b_p2d,
+					   const vector<pair<char,int> >& stringrep,
+					   const vector<pair<char,int> >& stringrep1,
+					   const vector<cv::Point>& matching
+					   ) 
+{
+	if (matching.size() == 0) return;
+	Mat outout(src.size(),CV_8UC3); outout.setTo(0);
+	drawOpenCurve(outout, a_p2d, Scalar(255,0,0), 1);
+	drawOpenCurve(outout, b_p2d, Scalar(0,255,0), 1);
+	VisualizeExtremaPoints(outout,a_p2d,stringrep);
+	VisualizeExtremaPoints(outout,b_p2d,stringrep1);
+	
+	for (vector<cv::Point>::const_iterator itr = matching.begin(); itr != matching.end() - 1; ++itr) {
+        cv::Point matchp = *itr;
+		int a_ctrl_pt = matchp.x;
+		int a_ctrl_pt_curve_pt = stringrep[a_ctrl_pt].second;
+		int b_ctrl_pt = matchp.y;
+		int b_ctrl_pt_curve_pt = stringrep1[b_ctrl_pt].second;
+		line(outout, a_p2d[a_ctrl_pt_curve_pt], b_p2d[b_ctrl_pt_curve_pt], Scalar(0,0,255), 1);
+	}
+	
+	imshow("matching", outout);
 }
 
 #pragma mark Signatures Database
 
-void PrepareSignatureDB(const vector<Point2d>& curve, vector<vector<double> >& DB, vector<Point>& DB_params);
+void PrepareSignatureDB(const vector<Point2d>& curve, vector<vector<double> >& DB, vector<cv::Point>& DB_params);
 
 template<typename T>
-void PrepareSignatureDB(const vector<Point_<T> >& curve, vector<vector<double> >& DB, vector<Point>& DB_params) {
+void PrepareSignatureDB(const vector<Point_<T> >& curve, vector<vector<double> >& DB, vector<cv::Point>& DB_params) {
 	vector<Point2d> curved; ConvertCurve(curve, curved);
 	PrepareSignatureDB(curved,DB,DB_params);
 }
@@ -168,7 +341,7 @@ void CompareCurvesUsingFLANN(const vector<Mat>& DB,
 							 int& b_subset_id);
 
 void CompareCurvesUsingSignatureDBMatcher(FlannBasedMatcher& matcher,
-										  const vector<Point>& typical_params,
+										  const vector<cv::Point>& typical_params,
 										  const vector<vector<double> >& b_DB,
 										  int& a_id,
 										  int& a_len,
@@ -178,8 +351,8 @@ void CompareCurvesUsingSignatureDBMatcher(FlannBasedMatcher& matcher,
 										  double& score
 										  );
 
-void CompareCurvesUsingSignatureDB(const vector<Point>& a_DB_params,
-								   const vector<Point>& b_DB_params,
+void CompareCurvesUsingSignatureDB(const vector<cv::Point>& a_DB_params,
+								   const vector<cv::Point>& b_DB_params,
 								   const vector<vector<double> >& a_DB,
 								   const vector<vector<double> >& b_DB,
 								   int& a_len,

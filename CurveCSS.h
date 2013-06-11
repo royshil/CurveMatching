@@ -3,6 +3,12 @@
  *  CurveMatching
  *
  *  Created by Roy Shilkrot on 11/28/12.
+ *  Copyright (c) 2013 MIT
+ *
+ *  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+ *  The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+ *
+ *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  */
 #pragma once
@@ -56,11 +62,24 @@ void ResampleCurve(const vector<Point_<T> >& curve, vector<Point_<V> >& output,
 
 template<typename T>
 void drawOpenCurve(Mat& img, const vector<Point_<T> >& curve, Scalar color, int thickness) {
-	vector<Point> curve2i;
+	if (curve.size() <= 0) {
+		return;
+	}
+	vector<cv::Point> curve2i;
 	ConvertCurve(curve, curve2i);
 	for (int i=0; i<curve2i.size()-1; i++) {
 		line(img, curve2i[i], curve2i[i+1], color, thickness);
 	}
+}
+
+template<typename T>
+void fillCurve(Mat& img, const vector<Point_<T> >& curve, Scalar color) {
+	vector<cv::Point> curve2i;
+	ConvertCurve(curve, curve2i);
+    cv::Point* pptr = &(curve2i[0]);
+	const cv::Point** ppptr = (const cv::Point**)&(pptr);
+	int psize = curve2i.size();
+	fillPoly(img, ppptr, &psize, 1, color);
 }
 
 #pragma mark CSS Image
@@ -208,5 +227,5 @@ double CalcCrossCorrelation(const Mat_<T>& x, const Mat_<T>& y) {
 
 
 double MatchTwoSegments(const vector<Point2d>& a, const vector<Point2d>& b);
-double MatchCurvesSmithWaterman(const vector<vector<Point2d> >& a, const vector<vector<Point2d> >& b, vector<Point>& traceback); 
-double AdaptedMatchCurvesSmithWaterman(const vector<vector<Point2d> >& a, const vector<vector<Point2d> >& b, vector<Point>& traceback);
+double MatchCurvesSmithWaterman(const vector<vector<Point2d> >& a, const vector<vector<Point2d> >& b, vector<cv::Point>& traceback);
+double AdaptedMatchCurvesSmithWaterman(const vector<vector<Point2d> >& a, const vector<vector<Point2d> >& b, vector<cv::Point>& traceback);

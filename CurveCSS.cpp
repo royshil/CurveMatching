@@ -14,7 +14,7 @@ using namespace cv;
 
 #ifdef HAVE_MATHGL
 #include <mgl2/mgl.h>
-#include <mgl2/window.h>
+//#include <mgl2/window.h>
 #endif
 
 #define TwoPi 6.28318530718
@@ -222,7 +222,7 @@ void ComputeCurveCSS(const vector<double>& curvex,
 vector<int> FindCSSInterestPoints(const vector<double>& kappa) {
 	vector<int> crossings;
 	for (int i=0; i<kappa.size()-1; i++) {
-		if ((kappa[i] < 0 && kappa[i+1] > 0) || kappa[i] > 0 && kappa[i+1] < 0) {
+		if ((kappa[i] < 0 && kappa[i+1] > 0) || (kappa[i] > 0 && kappa[i+1] < 0)) {
 			crossings.push_back(i);
 		}
 	}
@@ -431,47 +431,9 @@ double MatchTwoSegments(const vector<Point2d>& a_, const vector<Point2d>& b_) {
 	double cc = CalcCrossCorrelation(a_sig, b_sig);
 
 #if 0
-#ifdef HAVE_MATHGL
-	{
-		mglGraph gr;
-		gr.SubPlot(2, 1, 0, "");
-	
-		vector<double> a_canon_x,a_canon_y;
-		PolyLineSplit(a_canon, a_canon_x, a_canon_y);
-		vector<double> b_canon_x,b_canon_y;
-		PolyLineSplit(b_canon, b_canon_x, b_canon_y);
-		
-		mglData mgl_a_x(&(a_canon_x[0]),a_canon_x.size()),mgl_a_y(&(a_canon_y[0]),a_canon_y.size());
-		mglData mgl_b_x(&(b_canon_x[0]),b_canon_x.size()),mgl_b_y(&(b_canon_y[0]),b_canon_y.size());
-		
-		gr.Title("Canonical");
-		gr.Aspect(1, 1);	
-		gr.SetRanges(-.5, .5, -.5, .5);
-		gr.Axis(); 
-		gr.Grid();
-		gr.Plot(mgl_a_x,mgl_a_y);
-		gr.Plot(mgl_b_x,mgl_b_y);	
-
-		
-		gr.SubPlot(2, 1, 1, "");
-		mglData x(&(a_sig[0]),a_sig.size()),x1(&(b_sig[0]),b_sig.size());
-		
-		gr.Title("Signature");
-		gr.SetRanges(0, max(a_sig.size(),b_sig.size()), 0, 0.55);
-		gr.Axis(); 
-		gr.Grid();
-		gr.Plot(x);
-		gr.Plot(x1);
-
-		Mat img(gr.GetHeight(),gr.GetWidth(),CV_8UC3,(void*)gr.GetRGB());
-		stringstream ss; ss << "cross correlation " << cc;
-		putText(img, ss.str(), Point(10,20), CV_FONT_NORMAL, 1.0, Scalar(255), 2);
-		imshow("tmp", img);
-		waitKey();
-	}	
+    ShowMathGLCompareCurves(a_canon,b_canon,a_sig,b_sig,cc);
 #endif
-#endif
-	
+    
 	return cc; // > 0.8 ? cc : 0.0;
 }
 
