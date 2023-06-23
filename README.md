@@ -1,10 +1,10 @@
 CurveMatching
 =============
 
-Matching 2D curves in OpenCV
+Matching 2D curves in OpenCV using [scale space transform](https://en.wikipedia.org/wiki/Scale_space). 
 
 
-See http://www.morethantechnical.com/2012/12/26/2d-curve-matching-w-code/ for details.
+See [http://www.morethantechnical.com/2012/12/26/2d-curve-matching-w-code/](https://www.morethantechnical.com/2012/12/27/2d-curve-matching-in-opencv-w-code/) for details.
 
 Sample Usage
 ------------
